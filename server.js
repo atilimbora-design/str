@@ -185,6 +185,8 @@ app.post('/api/register', async (req, res) => {
 });
 
 // Sunucuyu Başlat
+const PORT = process.env.PORT || 3005;
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Sunucu çalışıyor: http://0.0.0.0:${PORT}`);
 });
