@@ -20,7 +20,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         const dir = 'uploads/';
-        if (!fs.existsSync(dir)){
+        if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir);
         }
         cb(null, dir);
@@ -61,12 +61,12 @@ app.get('/init-db', async (req, res) => {
 app.post('/api/reports', upload.array('receipts', 5), async (req, res) => {
     // Mobil'den gelen JSON verisi 'data' field'ı içinde string olarak gelir (Multipart request olduğu için)
     // Veya field field ayrıştırılmış olabilir. Basitlik için field field alalım.
-    
+
     const client = await pool.connect();
-    
+
     try {
         await client.query('BEGIN');
-        
+
         const {
             user_id, report_date, plate, km_start, km_end,
             cost_fuel, cost_toll, cost_other, cost_description,
@@ -84,7 +84,7 @@ app.post('/api/reports', upload.array('receipts', 5), async (req, res) => {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING id;
         `;
-        
+
         const reportValues = [
             user_id, report_date, plate, km_start, km_end,
             parseFloat(cost_fuel || 0), parseFloat(cost_toll || 0), parseFloat(cost_other || 0), cost_description,
@@ -139,6 +139,52 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
-    console.log(`Sunucu ${port} portunda çalışıyor.`);
+// --- ADMIN API ---
+
+// 1. Tüm Raporları Getir (Admin için)
+app.get('/api/reports', async (req, res) => {
+    try {
+        // Tarihe göre yeni olandan eskiye doğru
+        const result = await pool.query('SELECT r.*, u.full_name FROM reports r JOIN users u ON r.user_id = u.id ORDER BY r.report_date DESC, r.id DESC'); // Changed r.date to r.report_date
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Veritabanı hatası' });
+    }
+});
+
+// 2. Tüm Kullanıcıları Getir
+app.get('/api/users', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT id, username, full_name, is_admin FROM users ORDER BY id');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Veritabanı hatası' });
+    }
+});
+
+// 3. Yeni Kullanıcı Ekle
+app.post('/api/register', async (req, res) => {
+    const { username, password, full_name, is_admin } = req.body;
+
+    if (!username || !password || !full_name) {
+        return res.status(400).json({ error: 'Eksik bilgi' });
+    }
+
+    try {
+        const result = await pool.query(
+            'INSERT INTO users (username, password, full_name, is_admin) VALUES ($1, $2, $3, $4) RETURNING id, username',
+            [username, password, full_name, is_admin || false]
+        );
+        res.json({ message: 'Kullanıcı oluşturuldu', user: result.rows[0] });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Kayıt başarısız (Kullanıcı adı alınmış olabilir)' });
+    }
+});
+
+// Sunucuyu Başlat
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Sunucu çalışıyor: http://0.0.0.0:${PORT}`);
 });
