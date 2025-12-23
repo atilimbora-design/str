@@ -224,10 +224,45 @@ app.get('/api/users', async (req, res) => {
         const result = await pool.query('SELECT id, username, full_name, is_admin FROM users ORDER BY id');
         res.json(result.rows);
     } catch (err) {
-        console.error("GET users error:", err); // Daha detaylı log
+        console.error("GET users error:", err);
         res.status(500).json({ error: 'Veritabanı hatası: ' + err.message });
     }
 });
+
+// 3. Rapor Sil (DELETE)
+app.delete('/api/reports/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM reports WHERE id = $1', [id]);
+        res.json({ success: true, message: 'Rapor silindi' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Silme hatası: ' + err.message });
+    }
+});
+
+// 4. Rapor Güncelle (PUT)
+app.put('/api/reports/:id', async (req, res) => {
+    const { id } = req.params;
+    const { plate, km_start, km_end, cost_fuel, cost_toll, cost_other, collection_cash, collection_cc, notes } = req.body;
+
+    try {
+        await pool.query(`
+      UPDATE reports SET 
+        plate=$1, km_start=$2, km_end=$3, 
+        cost_fuel=$4, cost_toll=$5, cost_other=$6,
+        collection_cash=$7, collection_cc=$8,
+        notes=$9
+      WHERE id = $10
+    `, [plate, km_start, km_end, cost_fuel, cost_toll, cost_other, collection_cash, collection_cc, notes, id]);
+
+        res.json({ success: true, message: 'Rapor güncellendi' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Güncelleme hatası: ' + err.message });
+    }
+});
+
 
 // 3. Yeni Kullanıcı Ekle
 app.post('/api/register', async (req, res) => {
