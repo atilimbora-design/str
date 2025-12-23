@@ -127,7 +127,7 @@ app.post('/api/login', async (req, res) => {
             const user = result.rows[0];
             // NOT: Gerçek projede şifreler bcrypt ile kontrol edilmeli!
             if (user.password === password) {
-                res.json({ success: true, user: { id: user.id, full_name: user.full_name, role: user.role } });
+                res.json({ success: true, user: { id: user.id, full_name: user.full_name, is_admin: user.is_admin } });
             } else {
                 res.status(401).json({ success: false, message: 'Hatalı şifre' });
             }
@@ -145,11 +145,11 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/reports', async (req, res) => {
     try {
         // Tarihe göre yeni olandan eskiye doğru
-        const result = await pool.query('SELECT r.*, u.full_name FROM reports r JOIN users u ON r.user_id = u.id ORDER BY r.report_date DESC, r.id DESC'); // Changed r.date to r.report_date
+        const result = await pool.query('SELECT r.*, u.full_name FROM reports r LEFT JOIN users u ON r.user_id = u.id ORDER BY r.report_date DESC, r.id DESC');
         res.json(result.rows);
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Veritabanı hatası' });
+        res.status(500).json({ error: 'Veritabanı hatası: ' + err.message });
     }
 });
 
@@ -160,7 +160,7 @@ app.get('/api/users', async (req, res) => {
         res.json(result.rows);
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Veritabanı hatası' });
+        res.status(500).json({ error: 'Veritabanı hatası: ' + err.message });
     }
 });
 
