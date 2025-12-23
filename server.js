@@ -118,6 +118,71 @@ app.post('/api/reports', upload.array('receipts', 5), async (req, res) => {
     }
 });
 
+// Veritabanı SIFIRLAMA ve BAŞLATMA (DİKKAT: Veriler Silinir!)
+app.get('/reset-db', async (req, res) => {
+    try {
+        // Önce tabloları sil (Temiz Kurulum)
+        await pool.query('DROP TABLE IF EXISTS receipt_images CASCADE'); // Önce receipt_images silinmeli
+        await pool.query('DROP TABLE IF EXISTS reports CASCADE');
+        await pool.query('DROP TABLE IF EXISTS users CASCADE');
+
+        // Users Tablosu
+        await pool.query(`
+      CREATE TABLE users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        password VARCHAR(100) NOT NULL,
+        full_name VARCHAR(100),
+        is_admin BOOLEAN DEFAULT FALSE
+      );
+    `);
+
+        // Reports Tablosu
+        await pool.query(`
+      CREATE TABLE reports (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        report_date DATE DEFAULT CURRENT_DATE,
+        plate VARCHAR(20),
+        km_start INTEGER,
+        km_end INTEGER,
+        cost_fuel DECIMAL(10,2),
+        cost_toll DECIMAL(10,2),
+        cost_other DECIMAL(10,2),
+        cost_description TEXT,
+        collection_cash DECIMAL(10,2),
+        collection_cc DECIMAL(10,2),
+        collection_check DECIMAL(10,2),
+        collection_eft DECIMAL(10,2),
+        cash_delivered DECIMAL(10,2),
+        notes TEXT
+      );
+    `);
+
+        // Receipt Images Tablosu
+        await pool.query(`
+        CREATE TABLE receipt_images (
+            id SERIAL PRIMARY KEY,
+            report_id INTEGER REFERENCES reports(id) ON DELETE CASCADE,
+            image_path VARCHAR(255) NOT NULL,
+            image_type VARCHAR(50),
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    `);
+
+        // 1. Admin Kullanıcısı
+        await pool.query("INSERT INTO users (username, password, full_name, is_admin) VALUES ('admin', '123456', 'Sistem Yöneticisi', TRUE)");
+
+        // 2. Özel İstek Kullanıcısı (16 - Hüseyin Akgüneş)
+        await pool.query("INSERT INTO users (username, password, full_name, is_admin) VALUES ('16', '123456', 'Hüseyin Akgüneş', FALSE)");
+
+        res.json({ message: "Veritabanı SIFIRLANDI! Admin ve Hüseyin kullanıcısı eklendi." });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Giriş Yap
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
@@ -148,7 +213,7 @@ app.get('/api/reports', async (req, res) => {
         const result = await pool.query('SELECT r.*, u.full_name FROM reports r LEFT JOIN users u ON r.user_id = u.id ORDER BY r.report_date DESC, r.id DESC');
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
+        console.error("GET reports error:", err); // Daha detaylı log
         res.status(500).json({ error: 'Veritabanı hatası: ' + err.message });
     }
 });
@@ -159,7 +224,7 @@ app.get('/api/users', async (req, res) => {
         const result = await pool.query('SELECT id, username, full_name, is_admin FROM users ORDER BY id');
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
+        console.error("GET users error:", err); // Daha detaylı log
         res.status(500).json({ error: 'Veritabanı hatası: ' + err.message });
     }
 });
