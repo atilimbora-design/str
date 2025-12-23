@@ -1,0 +1,144 @@
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+require('dotenv').config();
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+// Resim dosyalarına erişim için statik klasör
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Dosya Yükleme Ayarları (Multer)
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const dir = 'uploads/';
+        if (!fs.existsSync(dir)){
+            fs.mkdirSync(dir);
+        }
+        cb(null, dir);
+    },
+    filename: function (req, file, cb) {
+        // Dosya ismini benzersiz yap: tarih-orjinalisim
+        cb(null, Date.now() + '-' + file.originalname);
+    }
+});
+const upload = multer({ storage: storage });
+
+// Veritabanı Bağlantısı
+// Coolify PostgreSQL bağlantı dizesini environment variable olarak verecek
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+});
+
+// Test Endpoint
+app.get('/', (req, res) => {
+    res.json({ status: 'OK', message: 'Satış Raporu API Çalışıyor v1.0' });
+});
+
+// Veritabanı Başlatma (Tabloları kontrol et)
+app.get('/init-db', async (req, res) => {
+    try {
+        const schema = fs.readFileSync('./init.sql').toString();
+        await pool.query(schema);
+        res.json({ message: 'Veritabanı tabloları hazır!' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- RAPORLAMA API UÇLARI (Taslak) ---
+
+// Rapor Gönder
+app.post('/api/reports', upload.array('receipts', 5), async (req, res) => {
+    // Mobil'den gelen JSON verisi 'data' field'ı içinde string olarak gelir (Multipart request olduğu için)
+    // Veya field field ayrıştırılmış olabilir. Basitlik için field field alalım.
+    
+    const client = await pool.connect();
+    
+    try {
+        await client.query('BEGIN');
+        
+        const {
+            user_id, report_date, plate, km_start, km_end,
+            cost_fuel, cost_toll, cost_other, cost_description,
+            collection_cash, collection_cc, collection_check, collection_eft,
+            cash_delivered, notes
+        } = req.body;
+
+        // 1. Raporu Kaydet
+        const reportQuery = `
+            INSERT INTO reports (
+                user_id, report_date, plate, km_start, km_end,
+                cost_fuel, cost_toll, cost_other, cost_description,
+                collection_cash, collection_cc, collection_check, collection_eft,
+                cash_delivered, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            RETURNING id;
+        `;
+        
+        const reportValues = [
+            user_id, report_date, plate, km_start, km_end,
+            parseFloat(cost_fuel || 0), parseFloat(cost_toll || 0), parseFloat(cost_other || 0), cost_description,
+            parseFloat(collection_cash || 0), parseFloat(collection_cc || 0), parseFloat(collection_check || 0), parseFloat(collection_eft || 0),
+            parseFloat(cash_delivered || 0), notes
+        ];
+
+        const reportResult = await client.query(reportQuery, reportValues);
+        const reportId = reportResult.rows[0].id;
+
+        // 2. Resimleri Kaydet
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                // Burada dosya tipini formdan da alabiliriz ama şimdilik generic kaydedelim
+                await client.query(
+                    'INSERT INTO receipt_images (report_id, image_path, image_type) VALUES ($1, $2, $3)',
+                    [reportId, file.filename, 'general']
+                );
+            }
+        }
+
+        await client.query('COMMIT');
+        res.status(201).json({ success: true, reportId: reportId, message: 'Rapor başarıyla kaydedildi.' });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ success: false, error: 'Sunucu hatası: ' + err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Giriş Yap
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (result.rows.length > 0) {
+            const user = result.rows[0];
+            // NOT: Gerçek projede şifreler bcrypt ile kontrol edilmeli!
+            if (user.password === password) {
+                res.json({ success: true, user: { id: user.id, full_name: user.full_name, role: user.role } });
+            } else {
+                res.status(401).json({ success: false, message: 'Hatalı şifre' });
+            }
+        } else {
+            res.status(404).json({ success: false, message: 'Kullanıcı bulunamadı' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.listen(port, () => {
+    console.log(`Sunucu ${port} portunda çalışıyor.`);
+});
